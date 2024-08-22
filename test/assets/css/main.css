@@ -1,0 +1,40 @@
+body, html { margin: 0; height: 100%; overflow: hidden; }
+canvas { display: block; width: 100%; height: 100%; }
+body {
+    margin: 0;
+    padding: 0;
+    font-family: "Open Sans", sans-serif;
+    box-sizing: border-box;
+    cursor: default;
+}
+
+*, *:before, *:after {
+    box-sizing: inherit;
+}
+
+header {
+    width: 100%;
+    height: 8rem;
+    position: sticky;
+    top: 0;
+    z-index: 1;
+}
+header > div {
+    width: calc(100% - 3rem);
+    max-width: 800px;
+    height: 100%;
+    margin: 0 auto;
+    display: flex;
+    align-items: center;
+}
+
+.page-title {
+    width: 100%;
+}
+
+.page-title .name {
+    font-size: 2em;
+    font-weight: bold;
+    color: #333;
+    mix-blend-mode: difference;
+}
