@@ -1,122 +1,126 @@
 import './style.css'
-
+import {Context} from "./application/webgl/context.ts";
+import {Shader} from "./application/webgl/shader.ts";
+import {Program} from "./application/webgl/program.ts";
 import { mat4 } from 'gl-matrix';
-
-const canvas = document.getElementById('oceanCanvas') as HTMLCanvasElement;
-const gl = canvas.getContext('webgl')!;
-
-function initGL() {
-    canvas.width = window.innerWidth;
-    canvas.height = window.innerHeight;
-    gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
-}
+import {Buffer} from "./application/webgl/buffer.ts";
 
 // Vertex Shader Code
 const vertexShaderSource = `
-    attribute vec4 position;
-    attribute vec3 normal;
-    uniform mat4 modelViewMatrix;
-    uniform mat4 projectionMatrix;
-    uniform float time;
-    varying float vWave;
-    void main() {
-        float wave = cos(position.x * 1.0 + time) * 0.5; // Adjust frequency and amplitude
-        vec3 displacedPosition = position.xyz + normal * wave;
-        vWave = wave;
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(displacedPosition, 0.5);
-    }
+attribute vec4 aPosition;
+attribute vec2 aUV;
+
+uniform mat4 uModelViewMatrix;
+uniform mat4 uProjectionMatrix;
+uniform float uTime;
+
+varying vec2 vUV;
+
+void main() {
+  // Define the wave parameters
+  float frequency1 = 4.0;
+  float amplitude1 = 0.05;
+  float frequency2 = 2.0;
+  float amplitude2 = 0.03;
+  float speed = 0.6;
+  
+  // Combine multiple sine waves for realistic waveforms
+  float wave = sin(frequency1 * aPosition.x + uTime * speed) * amplitude1 +
+               sin(frequency2 * (aPosition.x + aPosition.y) + uTime * speed * 0.8) * amplitude2;
+
+  // Apply wave displacement to the y-axis
+  vec4 displacedPosition = aPosition;
+  displacedPosition.z += wave;
+
+  // Set the final position
+  gl_Position = uProjectionMatrix * uModelViewMatrix * displacedPosition;
+  vUV = aUV;
+}
 `;
 
 // Fragment Shader Code
 const fragmentShaderSource = `
-    precision mediump float;
-    varying float vWave;
-    void main() {
-        gl_FragColor = vec4(0.0, 0.5 + 0.5 * vWave, 0.5, 1.5);
-    }
+precision mediump float;
+
+varying vec2 vUV;
+
+void main() {
+  // Smooth color gradient to simulate water
+  vec3 deepWaterColor = vec3(1, 1, 1);
+  vec3 shallowWaterColor = vec3(0.0, 0.5, 0.7);
+  
+  // Interpolate color based on UV y-coordinate for a water gradient
+  vec3 waterColor = mix(deepWaterColor, shallowWaterColor, vUV.y);
+  
+  gl_FragColor = vec4(waterColor, 1.0);
+}
 `;
 
-function createShader(gl: WebGLRenderingContext, type: number, source: string): WebGLShader {
-    const shader = gl.createShader(type)!;
-    gl.shaderSource(shader, source);
-    gl.compileShader(shader);
+const canvas = document.getElementById('oceanCanvas') as HTMLCanvasElement;
+const webGLContext = new Context(canvas);
+const gl = webGLContext.getGL();
 
-    if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
-        console.error(gl.getShaderInfoLog(shader));
-        gl.deleteShader(shader);
-        throw new Error('Shader compilation failed');
+gl.clearColor(0, 0, 0, 1.0);
+
+// Compile and link shaders
+const vertexShader = new Shader(gl, gl.VERTEX_SHADER, vertexShaderSource);
+const fragmentShader = new Shader(gl, gl.FRAGMENT_SHADER, fragmentShaderSource);
+const program = new Program(gl, vertexShader, fragmentShader);
+
+program.use();
+
+// Define grid with updated resolution and coverage
+const gridSize = 999;
+const positions = [];
+const uvs = [];
+
+for (let y = 0; y <= gridSize; y++) {
+    for (let x = 0; x <= gridSize; x++) {
+        const u = x / gridSize;
+        const v = y / gridSize;
+        positions.push(u * 2 - 1, v * 2 - 1, 0);
+        uvs.push(u, v);
     }
-    return shader;
 }
 
-function createProgram(gl: WebGLRenderingContext, vertexShader: WebGLShader, fragmentShader: WebGLShader): WebGLProgram {
-    const program = gl.createProgram()!;
-    gl.attachShader(program, vertexShader);
-    gl.attachShader(program, fragmentShader);
-    gl.linkProgram(program);
+const positionBuffer = new Buffer(gl, new Float32Array(positions));
+const uvBuffer = new Buffer(gl, new Float32Array(uvs));
 
-    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-        console.error(gl.getProgramInfoLog(program));
-        gl.deleteProgram(program);
-        throw new Error('Program linking failed');
-    }
-    return program;
-}
+// Setup attribute pointers
+const aPositionLocation = gl.getAttribLocation(program.getProgram(), 'aPosition');
+gl.enableVertexAttribArray(aPositionLocation);
+gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer.getBuffer());
+gl.vertexAttribPointer(aPositionLocation, 3, gl.FLOAT, false, 0, 0);
 
-function initShaders() {
-    const vertexShader = createShader(gl, gl.VERTEX_SHADER, vertexShaderSource);
-    const fragmentShader = createShader(gl, gl.FRAGMENT_SHADER, fragmentShaderSource);
+const aUVLocation = gl.getAttribLocation(program.getProgram(), 'aUV');
+gl.enableVertexAttribArray(aUVLocation);
+gl.bindBuffer(gl.ARRAY_BUFFER, uvBuffer.getBuffer());
+gl.vertexAttribPointer(aUVLocation, 2, gl.FLOAT, false, 0, 0);
 
-    const program = createProgram(gl, vertexShader, fragmentShader);
-    gl.useProgram(program);
+// Setup uniforms
+const uTimeLocation = gl.getUniformLocation(program.getProgram(), 'uTime');
+const uModelViewMatrixLocation = gl.getUniformLocation(program.getProgram(), 'uModelViewMatrix');
+const uProjectionMatrixLocation = gl.getUniformLocation(program.getProgram(), 'uProjectionMatrix');
 
-    const positionAttributeLocation = gl.getAttribLocation(program, 'position');
-    const normalAttributeLocation = gl.getAttribLocation(program, 'normal');
-    const positionBuffer = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
-    const positions = new Float32Array([
-        // Vertices of a grid.
-        -1, -1,  0,  0, 0, 1,
-        1, -1,  0,  0, 0, 1,
-        -1,  1,  0,  0, 0, 1,
-        1,  1,  0,  0, 0, 1,
-    ]);
-    gl.bufferData(gl.ARRAY_BUFFER, positions, gl.STATIC_DRAW);
+// Setup projection and view matrices
+const projectionMatrix = mat4.create();
+const modelViewMatrix = mat4.create();
 
-    gl.enableVertexAttribArray(positionAttributeLocation);
-    gl.vertexAttribPointer(positionAttributeLocation, 3, gl.FLOAT, false, 6 * 4, 0);
+mat4.perspective(projectionMatrix, Math.PI / 4, canvas.clientWidth / canvas.clientHeight, 0.1, 100.0);
+mat4.translate(modelViewMatrix, modelViewMatrix, [0, 0, -1]);
 
-    gl.enableVertexAttribArray(normalAttributeLocation);
-    gl.vertexAttribPointer(normalAttributeLocation, 3, gl.FLOAT, false, 6 * 4, 3 * 4);
+gl.uniformMatrix4fv(uProjectionMatrixLocation, false, projectionMatrix);
+gl.uniformMatrix4fv(uModelViewMatrixLocation, false, modelViewMatrix);
 
-    const timeUniformLocation = gl.getUniformLocation(program, 'time');
-    const projectionMatrixLocation = gl.getUniformLocation(program, 'projectionMatrix');
-    const modelViewMatrixLocation = gl.getUniformLocation(program, 'modelViewMatrix');
+// Rendering loop
+function render(time: number) {
+    webGLContext.resizeCanvasToDisplaySize();
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
-    const projectionMatrix = mat4.create();
-    mat4.perspective(projectionMatrix, Math.PI / 4, canvas.width / canvas.height, 0.1, 100.0);
-    gl.uniformMatrix4fv(projectionMatrixLocation, false, projectionMatrix);
-
-    const modelViewMatrix = mat4.create();
-    mat4.translate(modelViewMatrix, modelViewMatrix, [0, 0, -10]); // Move the wave further away
-    mat4.rotate(modelViewMatrix, modelViewMatrix, Math.PI, [1, 0, 0]); // Rotate the wave 45 degrees around the X-axis
-    gl.uniformMatrix4fv(modelViewMatrixLocation, false, modelViewMatrix);
-
-    let lastTime = 0;
-
-    function render(now: number) {
-        // @ts-ignore
-        const deltaTime = now - lastTime;
-        lastTime = now;
-        gl.uniform1f(timeUniformLocation, now * 0.01); // Pass the current time in seconds
-        gl.clearColor(0, 0, 0, 0);
-        gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-        requestAnimationFrame(render);
-    }
+    gl.uniform1f(uTimeLocation, time * 0.001);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, positions.length / 3);
 
     requestAnimationFrame(render);
 }
 
-initGL();
-initShaders();
+render(0);
