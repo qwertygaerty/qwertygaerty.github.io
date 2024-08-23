@@ -7,9 +7,20 @@
     <title>Vite + TS</title>
   </head>
   <body>
-    <div id="app">
-      <canvas id="oceanCanvas"></canvas>
-    </div>
+    <section id="app">
+      <div class="hero">
+        <div class="hero__info">
+          <div class="hero__info-data">
+            <h1>qwertygaerty</h1>
+            <label><input type="range" id="gridSizeSlider" class="hero__slider" min="50" value="50" max="300" step="20" /></label>
+          </div>
+        </div>
+        <div class="hero__image">
+          <canvas id="oceanCanvas"></canvas>
+        </div>
+      </div>
+
+    </section>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

@@ -17,20 +17,21 @@ uniform float uTime;
 varying vec2 vUV;
 
 void main() {
-  // Define the wave parameters
-  float frequency1 = 4.0;
-  float amplitude1 = 0.05;
-  float frequency2 = 2.0;
-  float amplitude2 = 0.03;
-  float speed = 0.6;
-  
-  // Combine multiple sine waves for realistic waveforms
-  float wave = sin(frequency1 * aPosition.x + uTime * speed) * amplitude1 +
-               sin(frequency2 * (aPosition.x + aPosition.y) + uTime * speed * 0.8) * amplitude2;
+  // Define wave parameters
+  float frequency = 10.0; // Frequency of the wave
+  float amplitude = 0.4; // Amplitude of the wave
+  float speed = 1.5; // Speed of the wave propagation
 
-  // Apply wave displacement to the y-axis
+  // Calculate distance from the vertical line (origin point)
+  vec2 origin = vec2(-1.0, 0.0); // Point from which the wave originates (left edge)
+  float distanceFromOrigin = length(aPosition.yx - origin);
+
+  // Compute wave displacement based on distance and time
+  float wave = amplitude * sin(frequency * distanceFromOrigin - uTime * speed);
+
+  // Apply wave displacement to the x-axis (rotated effect)
   vec4 displacedPosition = aPosition;
-  displacedPosition.z += wave;
+  displacedPosition.x += wave;
 
   // Set the final position
   gl_Position = uProjectionMatrix * uModelViewMatrix * displacedPosition;
@@ -38,21 +39,21 @@ void main() {
 }
 `;
 
-// Fragment Shader Code
 const fragmentShaderSource = `
 precision mediump float;
 
 varying vec2 vUV;
 
 void main() {
-  // Smooth color gradient to simulate water
-  vec3 deepWaterColor = vec3(1, 1, 1);
-  vec3 shallowWaterColor = vec3(0.0, 0.5, 0.7);
+  // Define colors for wave effect
+  vec3 waveColor = vec3(0.0, 0.5, 1.0); // Bright blue color for the waves
+  vec3 backgroundColor = vec3(1.0, 1.0, 1.0); // White background color
   
-  // Interpolate color based on UV y-coordinate for a water gradient
-  vec3 waterColor = mix(deepWaterColor, shallowWaterColor, vUV.y);
+  // Smooth color gradient to highlight the wave effect
+  float distanceFromCenter = length(vUV - 0.5);
+  vec3 color = mix(backgroundColor, waveColor, exp(-distanceFromCenter * 30.0));
   
-  gl_FragColor = vec4(waterColor, 1.0);
+  gl_FragColor = vec4(color, 1.0);
 }
 `;
 
@@ -60,7 +61,8 @@ const canvas = document.getElementById('oceanCanvas') as HTMLCanvasElement;
 const webGLContext = new Context(canvas);
 const gl = webGLContext.getGL();
 
-gl.clearColor(0, 0, 0, 1.0);
+// Set background color to white
+// gl.clearColor(1.0, 1.0, 1.0, 1.0); // RGBA (white)
 
 // Compile and link shaders
 const vertexShader = new Shader(gl, gl.VERTEX_SHADER, vertexShaderSource);
@@ -69,55 +71,75 @@ const program = new Program(gl, vertexShader, fragmentShader);
 
 program.use();
 
-// Define grid with updated resolution and coverage
-const gridSize = 999;
-const positions = [];
-const uvs = [];
+let gridSize = 50; // Initial grid size
+let positions: number[] = [];
+let uvs: number[] = [];
 
-for (let y = 0; y <= gridSize; y++) {
-    for (let x = 0; x <= gridSize; x++) {
-        const u = x / gridSize;
-        const v = y / gridSize;
-        positions.push(u * 2 - 1, v * 2 - 1, 0);
-        uvs.push(u, v);
+function generateGrid(size: number) {
+    positions = [];
+    uvs = [];
+
+    for (let y = 0; y <= size; y++) {
+        for (let x = 0; x <= size; x++) {
+            const u = x / size;
+            const v = y / size;
+            positions.push(u * 2 - 1, v * 2 - 1, 0);
+            uvs.push(u, v);
+        }
     }
 }
+
+const slider = document.getElementById('gridSizeSlider') as HTMLInputElement;
+slider.addEventListener('input', (event) => {
+    gridSize = parseInt((event.target as HTMLInputElement).value, 10);
+    generateGrid(gridSize);
+
+    // Update buffers with the new grid data
+    gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer.getBuffer());
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(positions), gl.STATIC_DRAW);
+
+    gl.bindBuffer(gl.ARRAY_BUFFER, uvBuffer.getBuffer());
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(uvs), gl.STATIC_DRAW);
+});
+
+generateGrid(gridSize);
+
+
 
 const positionBuffer = new Buffer(gl, new Float32Array(positions));
 const uvBuffer = new Buffer(gl, new Float32Array(uvs));
 
-// Setup attribute pointers
 const aPositionLocation = gl.getAttribLocation(program.getProgram(), 'aPosition');
-gl.enableVertexAttribArray(aPositionLocation);
-gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer.getBuffer());
-gl.vertexAttribPointer(aPositionLocation, 3, gl.FLOAT, false, 0, 0);
-
 const aUVLocation = gl.getAttribLocation(program.getProgram(), 'aUV');
-gl.enableVertexAttribArray(aUVLocation);
-gl.bindBuffer(gl.ARRAY_BUFFER, uvBuffer.getBuffer());
-gl.vertexAttribPointer(aUVLocation, 2, gl.FLOAT, false, 0, 0);
-
-// Setup uniforms
 const uTimeLocation = gl.getUniformLocation(program.getProgram(), 'uTime');
 const uModelViewMatrixLocation = gl.getUniformLocation(program.getProgram(), 'uModelViewMatrix');
 const uProjectionMatrixLocation = gl.getUniformLocation(program.getProgram(), 'uProjectionMatrix');
 
-// Setup projection and view matrices
 const projectionMatrix = mat4.create();
 const modelViewMatrix = mat4.create();
 
 mat4.perspective(projectionMatrix, Math.PI / 4, canvas.clientWidth / canvas.clientHeight, 0.1, 100.0);
-mat4.translate(modelViewMatrix, modelViewMatrix, [0, 0, -1]);
+mat4.translate(modelViewMatrix, modelViewMatrix, [0, 0, -3]);
 
 gl.uniformMatrix4fv(uProjectionMatrixLocation, false, projectionMatrix);
 gl.uniformMatrix4fv(uModelViewMatrixLocation, false, modelViewMatrix);
 
-// Rendering loop
+// Render loop
 function render(time: number) {
     webGLContext.resizeCanvasToDisplaySize();
+
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
+    gl.enableVertexAttribArray(aPositionLocation);
+    gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer.getBuffer());
+    gl.vertexAttribPointer(aPositionLocation, 3, gl.FLOAT, false, 0, 0);
+
+    gl.enableVertexAttribArray(aUVLocation);
+    gl.bindBuffer(gl.ARRAY_BUFFER, uvBuffer.getBuffer());
+    gl.vertexAttribPointer(aUVLocation, 3, gl.FLOAT, false, 0, 0);
+
     gl.uniform1f(uTimeLocation, time * 0.001);
+
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, positions.length / 3);
 
     requestAnimationFrame(render);
